@@ -2,18 +2,54 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
+import os
 
 # ------------------------------------------------
-# ฟังก์ชันดึงราคาทองสด
+# อ่าน API KEY (ปลอดภัย) — 3 ทางเลือกลำดับความสำคัญ:
+# 1) st.secrets["GOLDAPI_KEY"] (แนะนำสำหรับ Streamlit Cloud)
+# 2) environment variable (ถ้าตั้งในระบบ)
+# 3) None -> จะแจ้ง error ให้ผู้ใช้ใส่ key ใน Secrets
+# ------------------------------------------------
+def get_api_key():
+    # 1) st.secrets (Streamlit Cloud)
+    try:
+        key = st.secrets["GOLDAPI_KEY"]
+        if key:
+            return key
+    except Exception:
+        pass
+
+    # 2) environment variable
+    key = os.getenv("GOLDAPI_KEY")
+    if key:
+        return key
+
+    # 3) ถ้าไม่เจอ ให้ return None
+    return None
+
+# ------------------------------------------------
+# ฟังก์ชันดึงราคาทองสด (ใช้ GoldAPI)
 # ------------------------------------------------
 def get_gold_price():
+    api_key = get_api_key()
+    if not api_key:
+        # คืนค่า None ถ้าไม่มี key — UI จะแจ้งเตือนผู้ใช้
+        return None, "NO_API_KEY"
+
     try:
-        url = "https://finnhub.io/api/v1/quote?symbol=XAUUSD"
-        r = requests.get(url)
+        url = "https://www.goldapi.io/api/XAU/USD"
+        headers = {"x-access-token": api_key}
+        r = requests.get(url, headers=headers, timeout=8)
+        if r.status_code != 200:
+            return None, f"HTTP_{r.status_code}"
         data = r.json()
-        return data.get("c", None)  # current price
-    except:
-        return None
+        # GoldAPI ให้ field ชื่อ "price"
+        price = data.get("price") or data.get("ask") or data.get("bid")
+        if price is None:
+            return None, "NO_PRICE_IN_RESPONSE"
+        return price, None
+    except requests.exceptions.RequestException as e:
+        return None, "REQUEST_EXCEPTION"
 
 # ------------------------------------------------
 # ฟังก์ชันคำนวณ RR
@@ -44,8 +80,9 @@ if "plans" not in st.session_state:
 # ------------------------------------------------
 # UI เริ่มต้น
 # ------------------------------------------------
-st.title("AVP Gold Assistant V3")
+st.title("AVP Gold Assistant V3 (with GoldAPI)")
 st.write("✨ เพิ่มราคาทองสด + Mini Chart + Auto Entry")
+st.caption("หมายเหตุ: ต้องตั้ง GoldAPI key ใน Streamlit Secrets (ปลอดภัย) หรือ environment variable")
 
 # ------------------------------------------------
 # ปุ่มดึงราคาทองสด
@@ -53,12 +90,20 @@ st.write("✨ เพิ่มราคาทองสด + Mini Chart + Auto Ent
 st.subheader("ราคาทองคำสด (Realtime)")
 
 if st.button("📥 ดึงราคาทองคำตอนนี้"):
-    price = get_gold_price()
-    if price:
+    price, err = get_gold_price()
+    if err is None and price is not None:
         st.success(f"ราคาล่าสุด: {price:.2f}")
         st.session_state["live_price"] = price
     else:
-        st.error("ดึงราคาไม่สำเร็จ")
+        # แจ้งข้อความแยกหลายกรณี
+        if err == "NO_API_KEY":
+            st.error("❗ ไม่พบ GoldAPI key — กรุณาตั้งค่า GoldAPI key ใน Streamlit Secrets (หรือ environment variable GOLDAPI_KEY).")
+        elif err == "REQUEST_EXCEPTION":
+            st.error("❗ เกิดข้อผิดพลาดขณะเชื่อมต่อ API (network). ลองอีกครั้งหรือเช็คการเชื่อมต่อ.")
+        elif err and err.startswith("HTTP_"):
+            st.error(f"❗ API ตอบกลับด้วยสถานะ {err}. ลองตรวจสอบ key หรือรออีกสักครู่.")
+        else:
+            st.error("❗ ไม่สามารถดึงราคาได้ (response ไม่ถูกต้อง).")
 
 live_price = st.session_state.get("live_price", None)
 
@@ -169,4 +214,5 @@ else:
         st.write(f"- RR: {p['rr']:.2f} R")
         st.write(f"- สถานะโซน: {p['status']}")
         st.write("---")
+
 
