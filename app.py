@@ -31,25 +31,23 @@ def get_api_key():
 # ฟังก์ชันดึงราคาทองสด (ใช้ GoldAPI)
 # ------------------------------------------------
 def get_gold_price():
-    api_key = get_api_key()
-    if not api_key:
-        # คืนค่า None ถ้าไม่มี key — UI จะแจ้งเตือนผู้ใช้
-        return None, "NO_API_KEY"
-
     try:
+        api_key = st.secrets["GOLDAPI_KEY"]
+
         url = "https://www.goldapi.io/api/XAU/USD"
-        headers = {"x-access-token": api_key}
-        r = requests.get(url, headers=headers, timeout=8)
-        if r.status_code != 200:
-            return None, f"HTTP_{r.status_code}"
+        headers = {
+            "x-access-token": api_key,
+            "Content-Type": "application/json"
+        }
+
+        r = requests.get(url, headers=headers)
         data = r.json()
-        # GoldAPI ให้ field ชื่อ "price"
-        price = data.get("price") or data.get("ask") or data.get("bid")
-        if price is None:
-            return None, "NO_PRICE_IN_RESPONSE"
-        return price, None
-    except requests.exceptions.RequestException as e:
-        return None, "REQUEST_EXCEPTION"
+
+        return data.get("price", None)
+
+    except Exception as e:
+        return None
+
 
 # ------------------------------------------------
 # ฟังก์ชันคำนวณ RR
